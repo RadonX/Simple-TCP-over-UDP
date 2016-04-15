@@ -6,69 +6,56 @@
 #include <netdb.h>
 #include <unistd.h>
 
+#include "sock.h"
 
-void error(const char *msg)
-{
-    perror(msg);
-    exit(0);
-}
 
 int main(int argc, char *argv[]){
-    if (argc != 4) {
-        printf("Usage: receiver <server> <serv_port> <portno>\n");
+    
+    //  parse arguments
+    // > receiver file.txt 20000 127.0.0.1 20001 logfile.txt
+    if (argc != 6) {
+        printf("Usage: %s <filename> <listening_port> <sender_IP> <sender_port> <log_filename>\n", argv[0]);
         exit(1);
     }
+    int port = atoi(argv[2]);
+
+
+    struct sockaddr_in send_addr;
+    setup_host_sockaddr(send_addr, argv[3], atoi(argv[4]) );
+    
+    //  create a TCP socket for ack
+    int sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
+    if (sockfd_tcp < 0) error("Opening TCP socket");
+    bind_socket(sockfd_tcp, port);
+    //  connect to sender
+    if (connect(sockfd_tcp, (struct sockaddr *) &send_addr, sizeof(send_addr)) < 0)
+        error("ERROR connecting");
+
 
     //  create a socket for UDP
-    int sockfd;
-    sockfd = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
-    if (sockfd < 0) error("Opening socket");
-
-    socklen_t length = sizeof(struct sockaddr_in);
-
-    //  setup the host_addr structure for use in bind call 
-    struct sockaddr_in cli_addr;
-    bzero((char *) &cli_addr, length);
-    cli_addr.sin_family = AF_INET; // server byte order
-    cli_addr.sin_addr.s_addr = INADDR_ANY; // automatically be filled with current host's IP address
-    cli_addr.sin_port = htons(atoi(argv[3])); // convert short integer value for port must be converted into network byte order
-    //  bind the socket to the current IP address on port, portno
-    if (bind(sockfd, (struct sockaddr *)&cli_addr, length)<0) 
-        error("ERROR on binding");
-        
-    struct sockaddr_in serv_addr, from;
-
-    //  setup the serv_addr structure 
-    struct hostent *host;
-    host = gethostbyname(argv[1]);
-    if (host == NULL) error("Unknown host");
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family=AF_INET; //~~ AF_UNSPEC
-    bcopy((char *) host->h_addr, (char *) &serv_addr.sin_addr.s_addr, host->h_length);
-    serv_addr.sin_port=htons(atoi(argv[2]));
-    
+    int sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
+    if (sockfd_udp < 0) error("Opening UDP socket");
+    bind_socket(sockfd_udp, port);
     
     int n;
-    char buffer[256] = "hi, sender";
-    
-    n = sendto(sockfd, buffer, strlen(buffer) + 1, 0, 
-            (const struct sockaddr *)&serv_addr, length);
-    if (n < 0) error("ERROR sendto");
-    
+    char buffer[256];
+    struct sockaddr_in from;
+    socklen_t fromlen;
+
+    //  receive data from UDP socket    
     while (true){
 
         // bzero(buffer, 256);
-        n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &length);
+        n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
         if (n < 0) error("ERROR recvfrom");
-        printf("%s from port: %d\n", buffer, ntohs(from.sin_port));
+        printf("%s > from %s port %d\n", buffer, inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+        //~~ validate data src
 
-        // n = sendto(sockfd, "receiver got U", 8, 0, 
-        //         (const struct sockaddr *)&from, length);
-        // if (n < 0) error("ERROR sendto");
-
+        //~~ how to break when sockfd is closed
     }
    
-    close(sockfd);
+    close(sockfd_tcp);
+    close(sockfd_udp);
 
     return 0;
 }
