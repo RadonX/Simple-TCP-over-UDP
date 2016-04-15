@@ -1,11 +1,14 @@
 
-serv_addr.sin_family = AF_INET;
-serv_addr.sin_addr.s_addr = INADDR_ANY;
-serv_addr.sin_port = htons(portno);
 
+newudpl 
+
+    [-i sorce_host[[:|/][port|*]]] [-o dest_host[[:|/]port]]
+    [-s link_speed] [-d delay] [-e Ethernet_speed] [-q queue_buf_size]
+    [-B bit_error_rate] [-L random_packet_loss_rate] [-O out_of_order_rate]
+    
 
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *host_info, struct addrinfo **res);
-
+> getaddrinfo("www.example.com", "3490", &hints, &res);
 
 
 
@@ -39,3 +42,7 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *ho
  5. UDP will automatically tell you how much data you have, so there's no need for zero bytes. (This would also not allow files that contain zero bytes, such as binary files.)
 
  6. use an initial timeout length of 3s, and then commence using RTT and devRTT after two RTT measurements.
+ 
+ --- 
+ 
+ Commenting out line 161 in sysdep.h worked for me (I'm using Mac OS X, 10.11.3).
