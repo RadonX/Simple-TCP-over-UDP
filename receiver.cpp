@@ -1,12 +1,16 @@
-#include <sys/socket.h>
-#include <stdio.h>
-#include <netinet/in.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netdb.h>
-#include <unistd.h>
-
+#include "mytcp.h"
 #include "sock.h"
+#include "pack.h"
+
+#include <stdio.h>
+#include <stdlib.h> //atoi()
+#include <unistd.h> //close()
+#include <string.h>
+#include <arpa/inet.h> //inet_ntoa()
+//#include <sys/types.h>
+//#include <sys/socket.h>
+//#include <netinet/in.h>
+
 
 
 int main(int argc, char *argv[]){
@@ -38,17 +42,29 @@ int main(int argc, char *argv[]){
     bind_socket(sockfd_udp, port);
     
     int n;
-    char buffer[256];
+    unsigned char buffer[256];
     struct sockaddr_in from;
     socklen_t fromlen;
+    int offset;
+    struct mytcphdr tcp_hdr;
+
 
     //  receive data from UDP socket    
     while (true){
 
         // bzero(buffer, 256);
         n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
+
+        unpack(buffer, "HHLLCCHHH", &tcp_hdr.th_sport, &tcp_hdr.th_dport,
+               &tcp_hdr.th_seq, &tcp_hdr.th_ack, &offset,
+               &tcp_hdr.th_flags, &tcp_hdr.th_win, &tcp_hdr.th_sum, &tcp_hdr.th_urp
+        );
+        tcp_hdr.th_off = offset >> 4;
+
+        printf("%d %d %d",ntohs(tcp_hdr.th_sport), ntohs(tcp_hdr.th_dport), tcp_hdr.th_off );
+
         if (n < 0) error("ERROR recvfrom");
-        printf("%s > from %s port %d\n", buffer, inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+        printf("  > from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         //~~ validate data src
 
         //~~ how to break when sockfd is closed

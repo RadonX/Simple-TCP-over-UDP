@@ -1,14 +1,16 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-// #include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-
+#include "mytcp.h"
 #include "sock.h"
+#include "pack.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h> //atoi()
+#include <unistd.h> //close()
+#include <arpa/inet.h> //inet_ntoa()
+//#include <sys/types.h>
+//#include <sys/socket.h>
+//#include <netinet/in.h>
+
 
 
 int main(int argc, char *argv[])
@@ -20,7 +22,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Usage: %s <filename> <remote_IP> <remote_port> <ack_port_num> <log_filename> <window_size>\n", argv[0]);
         exit(0);
     }
-    int port = atoi(argv[4]);
+    int srcport = atoi(argv[4]);
 
     char *filename;
     // filename = argv[1];
@@ -32,7 +34,7 @@ int main(int argc, char *argv[])
     //  create a TCP socket for ack
     int sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd_tcp < 0) error("Opening TCP socket");
-    bind_socket(sockfd_tcp, port);
+    bind_socket(sockfd_tcp, srcport);
     listen(sockfd_tcp, 5);
 
     struct sockaddr_in from;
@@ -55,21 +57,43 @@ int main(int argc, char *argv[])
     //  create a UDP socket
     int sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
-    bind_socket(sockfd_udp, port);
+    bind_socket(sockfd_udp, srcport);
 
     
     int n;
-    char buffer[256];
-    
+    char buffer[256] = "this is data 0"; // len == 14
+    struct mytcphdr tcp_hdr;
+    int tcp_hdr_size;
+    unsigned char hdr_buf[24];
+
+    int seq = 0;
+
+    printf("%d", htons(0));
+
     //  send data via UDP socket to recv_addr   
     while (true){
+        buffer[13] = seq + '0';
+        /*
         printf("Please enter the message: ");
         bzero(buffer, 256);
         fgets(buffer, 255, stdin);
-        n = sendto(sockfd_udp, buffer, strlen(buffer) + 1, 0, 
+         */
+
+        set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port), seq, 5 );
+        tcp_hdr_size = pack(hdr_buf, "HHLLCCHHH", tcp_hdr.th_sport, tcp_hdr.th_dport,
+                tcp_hdr.th_seq, tcp_hdr.th_ack, (tcp_hdr.th_off << 4) + tcp_hdr.th_x2,
+                tcp_hdr.th_flags, tcp_hdr.th_win, tcp_hdr.th_sum, tcp_hdr.th_urp
+        );
+
+
+        sleep(1);
+
+        n = sendto(sockfd_udp, hdr_buf, tcp_hdr_size, 0,
                 (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
         if (n < 0) error("ERROR sendto");
-        
+
+        seq++;
+        if (seq == 10) seq = 0;
     }
     
     //~~  close socket
