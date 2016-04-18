@@ -14,6 +14,7 @@ int main(int argc, char *argv[]){
         exit(1);
     }
     int port = atoi(argv[2]);
+    char *filename = argv[1];
 
 
     unsigned char buffer[MYTCPHDR_LEN + BUFFER_SIZE];
@@ -33,7 +34,7 @@ int main(int argc, char *argv[]){
     if (n < 0) error("ERROR reading from socket_tcp");
     printf("Connected: %s\n", buffer);
 
-    //  create a socket for UDP
+    //: create a socket for UDP
     int sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
     // set SO_REUSEADDR on a socket to true (1):
@@ -45,6 +46,11 @@ int main(int argc, char *argv[]){
     socklen_t fromlen;
     int offset;
     struct mytcphdr tcp_hdr;
+    init_tcphdr(tcp_hdr);
+
+    FILE* fp = fopen(filename, "wb");
+    if (fp == NULL)
+        error("Can't open the file.\n");
 
 
     //  receive data from UDP socket    
@@ -52,6 +58,8 @@ int main(int argc, char *argv[]){
 
         // bzero(buffer, 256);
         n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
+        if (n < 0) error("ERROR recvfrom");
+        if (n <= MYTCPHDR_LEN) break;
 
         //  :memcpy (tcp_hdr, buffer, n);
         unpack(buffer, "HHLLCCHHH", &tcp_hdr.th_sport, &tcp_hdr.th_dport,
@@ -60,16 +68,17 @@ int main(int argc, char *argv[]){
         );
         tcp_hdr.th_off = offset >> 4;
 
+        fwrite(buffer + MYTCPHDR_LEN, sizeof(char), sizeof(buffer) - MYTCPHDR_LEN, fp);
 
         printf(" %d %d", tcp_hdr.th_seq, n);
 
-        if (n < 0) error("ERROR recvfrom");
         printf("  > from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         //~~ validate data src
 
         //~~ how to break when sockfd is closed
     }
-   
+
+    fclose(fp);
     close(sockfd_tcp);
     close(sockfd_udp);
 

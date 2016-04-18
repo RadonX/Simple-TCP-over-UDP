@@ -38,7 +38,7 @@ struct mytcphdr {
 
 #include <string.h>
 
-void init_tcphdr(struct mytcphdr &tcp_hdr)
+inline void init_tcphdr(struct mytcphdr &tcp_hdr)
 {
     bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
 }
@@ -46,8 +46,7 @@ void init_tcphdr(struct mytcphdr &tcp_hdr)
 void set_tcphdr(struct mytcphdr &tcp_hdr, unsigned short sport, unsigned short dport, tcp_seq seq = 0, unsigned short th_win = 65535, tcp_seq ack = 0,
                 int th_off = MYTCPHDR_LEN / 4, unsigned char th_flags = TH_ACK)
 {
-    //init
-    bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
+    init_tcphdr(tcp_hdr);
 
     tcp_hdr.th_sport = htons(sport);
     tcp_hdr.th_dport = htons(dport);
