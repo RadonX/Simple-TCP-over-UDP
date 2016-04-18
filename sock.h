@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h> //sockaddr_in
 
 void error(const char *msg)
 {

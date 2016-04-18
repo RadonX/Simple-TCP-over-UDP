@@ -3,6 +3,8 @@
 // #include <netinet/tcp.h>
 
 #include <stdlib.h>
+#include <sys/types.h>
+
 
 //#define __DARWIN_BYTE_ORDER  __DARWIN_BIG_ENDIAN
 typedef	__uint32_t tcp_seq;
@@ -41,8 +43,8 @@ void init_tcphdr(struct mytcphdr &tcp_hdr)
     bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
 }
 
-void set_tcphdr(struct mytcphdr &tcp_hdr, int sport, int dport, int seq, int th_win = 65536, int ack = 0,
-                int th_off = MYTCPHDR_LEN / 4, int th_flags = TH_ACK)
+void set_tcphdr(struct mytcphdr &tcp_hdr, unsigned short sport, unsigned short dport, tcp_seq seq = 0, unsigned short th_win = 65535, tcp_seq ack = 0,
+                int th_off = MYTCPHDR_LEN / 4, unsigned char th_flags = TH_ACK)
 {
     //init
     bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
@@ -56,8 +58,17 @@ void set_tcphdr(struct mytcphdr &tcp_hdr, int sport, int dport, int seq, int th_
 //    tcp_hdr.th_x2 = 0;
     tcp_hdr.th_flags = th_flags;
 
-    tcphdr.th_win = htons(th_win);
+    tcp_hdr.th_win = htons(th_win);
 //    tcp_hdr.th_sum = tcp4_checksum (iphdr, tcphdr);
-//    tcphdr.th_urp = htons(0); // only valid if URG flag is set
+//    tcp_hdr.th_urp = htons(0); // only valid if URG flag is set
 
 }
+
+/*
+ * Compute the Internet Checksum of the supplied data.  The
+        checksum is initialized to zero.  Place the return value in
+        the checksum field of a packet.  When the packet is received,
+        check the checksum, by passing in the checksum field of the
+        packet and the data.  If the result is zero, then the checksum
+        has not detected an error.
+ */
