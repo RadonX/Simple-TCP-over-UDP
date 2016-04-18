@@ -3,7 +3,7 @@
 #include "pack.h"
 
 #include "sharelib.h"
-
+#include "window.h"
 
 int main(int argc, char *argv[]){
     
@@ -17,7 +17,7 @@ int main(int argc, char *argv[]){
     char *filename = argv[1];
 
 
-    unsigned char buffer[MYTCPHDR_LEN + BUFFER_SIZE];
+    unsigned char buffer[MYTCPHDR_LEN + TCP_DATA_SIZE];
     int n;
 
     struct sockaddr_in send_addr;
