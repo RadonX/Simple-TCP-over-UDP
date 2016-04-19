@@ -82,6 +82,7 @@ int main(int argc, char *argv[])
     //:: create a UDP socket
     sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
+    setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
     bind_socket(sockfd_udp, srcport);
 
 
@@ -97,14 +98,15 @@ int main(int argc, char *argv[])
         error("Can't open the file.\n");
 
 
-
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(sockfd, &readfds);
 
 
-    timeval timeout;
+    timeval timeout, zero_timeout;
     int initialWait = 5;
+    zero_timeout.tv_sec = 0;
+    zero_timeout.tv_usec = 1000;
     timeout.tv_usec = 0;
     timeout.tv_sec = initialWait ;//* 2;
 
@@ -123,56 +125,102 @@ int main(int argc, char *argv[])
         switch (event) {
 
             case READDATA:
+                event = WAIT;
                 while (!eof){
-                    printf("READDATA");
                     //: add data to window if there is space and send it
-                    if ( (ind = add_data_to_window(buffer, bufferlen, npkt, seq)) != -1 ){
-                        printf("%d\n", npkt);
+                    ind = add_data_to_window(buffer, bufferlen, npkt, seq);
+                    if ( ind != -1 ){
+                        printf("add %d\n", seq);
                         send_packet(ind);
                         seq++; //~~ add_seq
                         npkt++;
                     } else{
-                        printf("\n");
+                    //: otherwise wait for new event
                         break;
                     }
                     //: read new data from file
                     bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
                     eof = (bufferlen <= 0);
+
+
+                    // check sockfd right after each packet sent,
+                    // so that received ack pkts don't huddle
+                    select(sockfd + 1, &readfds, NULL, NULL, &zero_timeout);
+                    if (FD_ISSET(sockfd, &readfds)){
+                        printf("break from READDATA\n");
+                        event = READDATA;
+                        break;
+                    }
+                    else{
+                        FD_SET(sockfd, &readfds);
+                        // make sure sockfd in readfds before select()
+                    }
+
                 }
+                printf("READDATA upto %d\n", npkt);
                 break;
 
             case ACK:
-                ack_window(acknum);
+                if (acknum > 0)
+                    ack_window(acknum-1);// get packet < acknum, currently seq == npkt
                 printf("ack%d\n", acknum);
-                event = READDATA;
-                continue;
-                //break;
+                // always read new data after each ACK
+                if (!eof){
+                    event = READDATA;
+                    continue;
+                }
+                break;
+
             case TIMEOUT:
+                break;
+            default:
                 break;
         }
 
-        printf("wait\n");
+        //P64: change timeout
 
+        //:: wait for event ack/timeout
+//        printf("wait\n");
 
-        //P64
-        int ret_select = select(sockfd+1, &readfds, NULL, NULL, &timeout);
-        if (ret_select == -1)
-            error("ERROR select");
-        else if (ret_select == 0){
-            event = TIMEOUT; //~~
-            printf("timeout\n");
-            event = READDATA;
-        }
-        else{
-            if (FD_ISSET(sockfd, &readfds) ){
-                n = recv(sockfd, packet_buf, sizeof packet_buf, 0);
-                unpack_tcphdr(packet_buf, tmptcphdr);
-                if (tmptcphdr.th_flags & TH_ACK){
-                    event = ACK;
-                    acknum = tmptcphdr.th_ack;
-                }
+        if (event != READDATA) {
+
+            printf("select\n");
+            int ret_select = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
+            if (ret_select == -1)
+                error("ERROR select()");
+            else if (ret_select == 0) {
+                event = TIMEOUT; //~~
+                printf("timeout\n");
+                continue;
             }
+        } // otherwise it's break from READDATA to recv new packet
+
+
+        //: parse received packet
+        if (FD_ISSET(sockfd, &readfds) ){ //~~ seems that after receiver sock closed, here always being true
+            n = recv(sockfd, packet_buf, sizeof packet_buf, 0);
+            unpack_tcphdr(packet_buf, tmptcphdr);
+
+            if (n!=20){
+                printf("%d\n", n);
+                sleep(5);
+
+            }
+            //: log tcp header
+            log_timestamp(logbuffer);
+            log_tcphdr(logbuffer+10, tmptcphdr);
+            puts(logbuffer);
+
+
+            if (tmptcphdr.th_flags & TH_ACK){
+                event = ACK;
+                acknum = tmptcphdr.th_ack;
+            } else event = WAIT;
+
+        } else {
+            error("`if` should be true or never be reached after select()");
         }
+
 
         //fin = eof || ;
 

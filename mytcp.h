@@ -6,6 +6,9 @@
 #include <sys/types.h>
 #include "pack.h"
 
+#include <string.h>
+#include "stdio.h"
+
 //#define __DARWIN_BYTE_ORDER  __DARWIN_BIG_ENDIAN
 typedef	__uint32_t tcp_seq;
 
@@ -36,7 +39,6 @@ struct mytcphdr {
 
 #define MYTCPHDR_LEN sizeof(struct mytcphdr)
 
-#include <string.h>
 
 
 inline void init_tcphdr(struct mytcphdr &tcp_hdr)
@@ -75,6 +77,26 @@ inline void unpack_tcphdr(unsigned char *buffer, struct mytcphdr &tcp_hdr)
            &tcp_hdr.th_flags, &tcp_hdr.th_win, &tcp_hdr.th_sum, &tcp_hdr.th_urp);
 //    tcp_hdr.th_off = offset >> 4;
 }
+
+char flags[] = "UAPRSF" ;
+int flags_val[] = {TH_URG, TH_ACK, TH_PUSH, TH_RST, TH_SYN, TH_FIN };
+
+void log_tcphdr(char *logbuffer, struct mytcphdr &tcp_hdr)
+{
+    char flagsbuffer[7] = "null";
+    int i, j;
+    for (i = 0, j = 0; i < 7; i++){
+        if (tcp_hdr.th_flags & flags_val[i]){
+            flagsbuffer[j] = flags[i];
+            j++;
+        }
+    }
+    if (j != 0)
+        flagsbuffer[j] = '\0';
+    sprintf(logbuffer, "%d, %d, %d, %d, %s",
+            tcp_hdr.th_sport, tcp_hdr.th_dport, tcp_hdr.th_seq, tcp_hdr.th_ack, flagsbuffer);
+}
+
 
 inline void pack_tcphdr(unsigned char *buffer, const struct mytcphdr &tcp_hdr)
 {

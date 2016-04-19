@@ -36,6 +36,8 @@ int main(int argc, char *argv[]){
     //: create a TCP socket for ack
     sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd_tcp < 0) error("Opening TCP socket");
+    int optval = 1;
+    setsockopt(sockfd_tcp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
     bind_socket(sockfd_tcp, srcport);
     //: connect to sender
     if (connect(sockfd_tcp, (struct sockaddr *) &send_addr, sizeof(send_addr)) < 0)
@@ -48,8 +50,7 @@ int main(int argc, char *argv[]){
     int sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
     // set SO_REUSEADDR on a socket to true (1):
-    int optval = 1;
-    //setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
+    setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
     bind_socket(sockfd_udp, srcport);
     
     struct sockaddr_in from;
@@ -61,6 +62,7 @@ int main(int argc, char *argv[]){
     if (fp == NULL)
         error("Can't open the file.\n");
 
+    tcp_seq expseq = 0;
 
     //  receive data from UDP socket    
     while (true){
@@ -71,21 +73,33 @@ int main(int argc, char *argv[]){
         if (n <= MYTCPHDR_LEN) break;
 
         unpack_tcphdr(buffer, tmptcphdr);
-        send_ack(tmptcphdr.th_seq);
-        printf("ack%d", tmptcphdr.th_seq);
 
-        sleep(2);
+        //: log tcp header
+        log_timestamp(logbuffer);
+        log_tcphdr(logbuffer+10, tmptcphdr);
+        puts(logbuffer);
+
+        if (expseq == tmptcphdr.th_seq){
+            expseq++;
+        }
+        send_ack(expseq);
+
+        log_timestamp(logbuffer);
+        log_tcphdr(logbuffer+10, tcp_hdr);
+        puts(logbuffer);
+
+//        printf("  >> from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
 
         fwrite(buffer + MYTCPHDR_LEN, sizeof(char), sizeof(buffer) - MYTCPHDR_LEN, fp);
 
-
-        printf("  > from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         //~~ validate data src
 
         //~~ how to break when sockfd is closed
     }
 
     fclose(fp);
+    printf("Delivery completed successfully\n");
+
     close(sockfd_tcp);
     close(sockfd_udp);
 

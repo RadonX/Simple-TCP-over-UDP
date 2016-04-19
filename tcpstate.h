@@ -14,7 +14,7 @@ struct tcpdata{
 static tcpdata *window;
 static int cwnd;
 
-enum EVENT {READDATA, ACK, TIMEOUT};
+enum EVENT {READDATA, ACK, TIMEOUT, WAIT};
 static enum EVENT event;
 
 struct TCPFSM {
@@ -51,8 +51,8 @@ int add_data_to_window(unsigned char *buffer, int bufferlen, int index, int seq)
     return -1;
 }
 
-void ack_window(int ack)
+void ack_window(int index)
 {
-    int ind = ack % cwnd; // (index = npkt) == seq
+    int ind = index % cwnd; // (index = npkt) == seq
     window[ind].state = 0;
 }
