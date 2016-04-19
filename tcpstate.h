@@ -1,11 +1,11 @@
 #include "string.h"
-
+#include "stdlib.h"
 #define MAX_CWND 128
 #define TCP_DATA_SIZE 256
 
 
 struct tcpdata{
-    int state; // 0: available, 1: ready
+    int state; // 0: available, 1: ready or sent
     int size;
     int seq;
     unsigned char data[TCP_DATA_SIZE];
@@ -14,11 +14,12 @@ struct tcpdata{
 static tcpdata *window;
 static int cwnd;
 
-
+enum EVENT {READDATA, ACK, TIMEOUT};
+static enum EVENT event;
 
 struct TCPFSM {
     int wndbase;
-    int dataready;
+    int state;
 };
 static struct TCPFSM tcpfsm;
 
@@ -32,6 +33,7 @@ void init_tcpfsm()
 {
     init_window();
     tcpfsm.wndbase = 0;
+    tcpfsm.state = 0;
 //    tcpfsm.datasent = 0;
 };
 
@@ -44,8 +46,13 @@ int add_data_to_window(unsigned char *buffer, int bufferlen, int index, int seq)
         window[ind].size = bufferlen;
         window[ind].state = 1;
         window[ind].seq = seq;
-        tcpfsm.dataready++;
         return ind;
     }
     return -1;
+}
+
+void ack_window(int ack)
+{
+    int ind = ack % cwnd; // (index = npkt) == seq
+    window[ind].state = 0;
 }

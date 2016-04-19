@@ -1,19 +1,29 @@
+#include "tcpstate.h"
 #include "mytcp.h"
 #include "sock.h"
-#include "pack.h"
 
 #include "sharelib.h"
-#include "window.h"
+
+
+struct mytcphdr tcp_hdr;
+unsigned char packet_buf[MYTCPHDR_LEN];
+int sockfd_tcp;
+
+void send_ack(int ack){
+    set_tcphdr_ack(tcp_hdr, ack);
+    pack_tcphdr(packet_buf, tcp_hdr);
+    send(sockfd_tcp, packet_buf, sizeof(packet_buf), 0);
+}
 
 int main(int argc, char *argv[]){
     
     //  parse arguments
-    // > receiver file.txt 20000 127.0.0.1 20001 logfile.txt
+    // > receiver file.gz 20000 127.0.0.1 20001 logfile.txt
     if (argc != 6) {
         printf("Usage: %s <filename> <listening_port> <sender_IP> <sender_port> <log_filename>\n", argv[0]);
         exit(1);
     }
-    int port = atoi(argv[2]);
+    int srcport = atoi(argv[2]);
     char *filename = argv[1];
 
 
@@ -24,9 +34,9 @@ int main(int argc, char *argv[]){
     setup_host_sockaddr(send_addr, argv[3], atoi(argv[4]) );
 
     //: create a TCP socket for ack
-    int sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
+    sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd_tcp < 0) error("Opening TCP socket");
-    bind_socket(sockfd_tcp, port);
+    bind_socket(sockfd_tcp, srcport);
     //: connect to sender
     if (connect(sockfd_tcp, (struct sockaddr *) &send_addr, sizeof(send_addr)) < 0)
         error("ERROR connecting");
@@ -40,13 +50,12 @@ int main(int argc, char *argv[]){
     // set SO_REUSEADDR on a socket to true (1):
     int optval = 1;
     //setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
-    bind_socket(sockfd_udp, port);
+    bind_socket(sockfd_udp, srcport);
     
     struct sockaddr_in from;
     socklen_t fromlen;
-    int offset;
-    struct mytcphdr tcp_hdr;
-    init_tcphdr(tcp_hdr);
+    struct mytcphdr tmptcphdr;
+    set_tcphdr(tcp_hdr, srcport, ntohs(send_addr.sin_port));
 
     FILE* fp = fopen(filename, "wb");
     if (fp == NULL)
@@ -61,16 +70,14 @@ int main(int argc, char *argv[]){
         if (n < 0) error("ERROR recvfrom");
         if (n <= MYTCPHDR_LEN) break;
 
-        //  :memcpy (tcp_hdr, buffer, n);
-        unpack(buffer, "HHLLCCHHH", &tcp_hdr.th_sport, &tcp_hdr.th_dport,
-               &tcp_hdr.th_seq, &tcp_hdr.th_ack, &offset,
-               &tcp_hdr.th_flags, &tcp_hdr.th_win, &tcp_hdr.th_sum, &tcp_hdr.th_urp
-        );
-        tcp_hdr.th_off = offset >> 4;
+        unpack_tcphdr(buffer, tmptcphdr);
+        send_ack(tmptcphdr.th_seq);
+        printf("ack%d", tmptcphdr.th_seq);
+
+        sleep(2);
 
         fwrite(buffer + MYTCPHDR_LEN, sizeof(char), sizeof(buffer) - MYTCPHDR_LEN, fp);
 
-        printf(" %d %d", tcp_hdr.th_seq, n);
 
         printf("  > from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         //~~ validate data src

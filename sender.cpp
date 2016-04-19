@@ -1,24 +1,20 @@
+#include "tcpstate.h"
 #include "mytcp.h"
 #include "sock.h"
-#include "pack.h"
 
 #include "sharelib.h"
-#include "window.h"
 
 
 
 struct mytcphdr tcp_hdr;
-unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE];
+unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE]; // for data send to/recv from socket
 struct sockaddr_in recv_addr;
 int sockfd_tcp, sockfd_udp;
 
 
 void send_packet(int ind){
     tcp_hdr.th_seq = window[ind].seq;
-    pack(packet_buf, "HHLLCCHHH", tcp_hdr.th_sport, tcp_hdr.th_dport,
-         tcp_hdr.th_seq, tcp_hdr.th_ack, (tcp_hdr.th_off << 4) + tcp_hdr.th_x2,
-         tcp_hdr.th_flags, tcp_hdr.th_win, tcp_hdr.th_sum, tcp_hdr.th_urp);
-
+    pack_tcphdr(packet_buf, tcp_hdr);
     memcpy(packet_buf + MYTCPHDR_LEN, window[ind].data, window[ind].size);
 
     //  send data via UDP socket to recv_addr
@@ -26,7 +22,6 @@ void send_packet(int ind){
                (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
     if (n < 0) error("ERROR sendto");
 
-    window[ind].state = 0;
 }
 
 
@@ -51,18 +46,22 @@ int main(int argc, char *argv[])
 
 
 
-    //  create a TCP socket for ack
+    //:: create a TCP socket for ack
     sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd_tcp < 0) error("Opening TCP socket");
+    //  lose the pesky "address already in use" error message
+    int optval = 1;
+    setsockopt(sockfd_tcp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
     bind_socket(sockfd_tcp, srcport);
     listen(sockfd_tcp, 5);
+    int sockfd;
 
+
+    //: wait for notification from the remote host
     struct sockaddr_in from;
     socklen_t fromlen;
-
-    //  wait for notification from the remote host
     while (true){
-        int sockfd = accept(sockfd_tcp, (struct sockaddr *) &from, &fromlen);
+        sockfd = accept(sockfd_tcp, (struct sockaddr *) &from, &fromlen);
         if (sockfd < 0) error("ERROR on accept");
         printf("got connection from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         send(sockfd, "Hello, receiver!\n", 20, 0);
@@ -80,66 +79,102 @@ int main(int argc, char *argv[])
     }
 
     
-    //  create a UDP socket
+    //:: create a UDP socket
     sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
     bind_socket(sockfd_udp, srcport);
 
 
-    fd_set readfds, writefds;
-    FD_ZERO(&readfds);
-    FD_ZERO(&writefds);
-    FD_SET(sockfd_tcp, &readfds);
-    FD_SET(sockfd_udp, &writefds);
-//    int maxfd = max(sockfd_tcp, sockfd_udp);
-//    select(sockfd_tcp+1, &readfds, NULL, NULL, &tv);
-
-
-    timeval timeout;
-    int initialWait = 3;
-    timeout.tv_usec = 0;
-    timeout.tv_sec = initialWait ;//* 2;
-
-    //: init window and buffer
+    //:: init window and buffer
     int n;
-    unsigned char buffer[TCP_DATA_SIZE];
-    unsigned char hdr_buf[24];
-    init_tcpfsm();
+    unsigned char buffer[TCP_DATA_SIZE]; // for data read from file
     set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port));
 
+    init_tcpfsm();//~~
 
     FILE* fp = fopen(filename, "rb");
     if (fp == NULL)
         error("Can't open the file.\n");
 
+
+
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(sockfd, &readfds);
+
+
+    timeval timeout;
+    int initialWait = 5;
+    timeout.tv_usec = 0;
+    timeout.tv_sec = initialWait ;//* 2;
+
+    //:: TCP state machine
+
+    event = READDATA;
     int bufferlen;
-
-    //bzero(buffer, 256);
-
-
-    //:: init TCP state machine
-    int seq = 0, npkt = 0, ind;
+    int ind, acknum;
     bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
-    bool eof = (bufferlen <= 0);
+    int seq = 0, npkt = 0;
+    bool eof = (bufferlen <= 0), fin = false;
+    struct mytcphdr tmptcphdr;
 
+    while (!fin){
 
+        switch (event) {
 
-    while (!eof){
+            case READDATA:
+                while (!eof){
+                    printf("READDATA");
+                    //: add data to window if there is space and send it
+                    if ( (ind = add_data_to_window(buffer, bufferlen, npkt, seq)) != -1 ){
+                        printf("%d\n", npkt);
+                        send_packet(ind);
+                        seq++; //~~ add_seq
+                        npkt++;
+                    } else{
+                        printf("\n");
+                        break;
+                    }
+                    //: read new data from file
+                    bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
+                    eof = (bufferlen <= 0);
+                }
+                break;
 
-        while (!eof){
-            //: add data to window if there is space and send it
-            if ( (ind = add_data_to_window(buffer, bufferlen, npkt, seq)) != -1 ){
-                send_packet(ind);
-                seq++; //~~ add_seq
-                npkt++;
-            } else break;
-            //: read new data from file
-            bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
-            eof = (bufferlen <= 0);
+            case ACK:
+                ack_window(acknum);
+                printf("ack%d\n", acknum);
+                event = READDATA;
+                continue;
+                //break;
+            case TIMEOUT:
+                break;
         }
 
-        sleep(1);
-        printf("some packets sent\n");
+        printf("wait\n");
+
+
+        //P64
+        int ret_select = select(sockfd+1, &readfds, NULL, NULL, &timeout);
+        if (ret_select == -1)
+            error("ERROR select");
+        else if (ret_select == 0){
+            event = TIMEOUT; //~~
+            printf("timeout\n");
+            event = READDATA;
+        }
+        else{
+            if (FD_ISSET(sockfd, &readfds) ){
+                n = recv(sockfd, packet_buf, sizeof packet_buf, 0);
+                unpack_tcphdr(packet_buf, tmptcphdr);
+                if (tmptcphdr.th_flags & TH_ACK){
+                    event = ACK;
+                    acknum = tmptcphdr.th_ack;
+                }
+            }
+        }
+
+        //fin = eof || ;
 
     }
 

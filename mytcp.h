@@ -4,7 +4,7 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
-
+#include "pack.h"
 
 //#define __DARWIN_BYTE_ORDER  __DARWIN_BIG_ENDIAN
 typedef	__uint32_t tcp_seq;
@@ -38,28 +38,49 @@ struct mytcphdr {
 
 #include <string.h>
 
+
 inline void init_tcphdr(struct mytcphdr &tcp_hdr)
 {
     bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
 }
 
-void set_tcphdr(struct mytcphdr &tcp_hdr, unsigned short sport, unsigned short dport, tcp_seq seq = 0, unsigned short th_win = 65535, tcp_seq ack = 0,
-                int th_off = MYTCPHDR_LEN / 4, unsigned char th_flags = TH_ACK)
+void set_tcphdr(struct mytcphdr &tcp_hdr, unsigned short sport, unsigned short dport,
+                unsigned short th_win = 65535, int th_off = MYTCPHDR_LEN / 4)
 {
     init_tcphdr(tcp_hdr);
 
-    tcp_hdr.th_sport = htons(sport);
-    tcp_hdr.th_dport = htons(dport);
-    tcp_hdr.th_seq = htonl(seq);
-    tcp_hdr.th_ack = htonl(ack);
+    tcp_hdr.th_sport = sport;
+    tcp_hdr.th_dport = dport;
+//    tcp_hdr.th_seq = seq;
 
     tcp_hdr.th_off = th_off;
 //    tcp_hdr.th_x2 = 0;
-    tcp_hdr.th_flags = th_flags;
 
-    tcp_hdr.th_win = htons(th_win);
+    tcp_hdr.th_win = th_win;
 //    tcp_hdr.th_sum = tcp4_checksum (iphdr, tcphdr);
-//    tcp_hdr.th_urp = htons(0); // only valid if URG flag is set
+//    tcp_hdr.th_urp = 0; // only valid if URG flag is set
+}
+
+inline void set_tcphdr_ack(struct mytcphdr &tcp_hdr, tcp_seq ack)
+{
+    tcp_hdr.th_flags |= TH_ACK;
+    tcp_hdr.th_ack = ack;
+}
+
+inline void unpack_tcphdr(unsigned char *buffer, struct mytcphdr &tcp_hdr)
+{
+    int offset;
+    unpack(buffer, "HHLLCCHHH", &tcp_hdr.th_sport, &tcp_hdr.th_dport,
+           &tcp_hdr.th_seq, &tcp_hdr.th_ack, &offset,
+           &tcp_hdr.th_flags, &tcp_hdr.th_win, &tcp_hdr.th_sum, &tcp_hdr.th_urp);
+//    tcp_hdr.th_off = offset >> 4;
+}
+
+inline void pack_tcphdr(unsigned char *buffer, const struct mytcphdr &tcp_hdr)
+{
+    pack(buffer, "HHLLCCHHH", tcp_hdr.th_sport, tcp_hdr.th_dport,
+         tcp_hdr.th_seq, tcp_hdr.th_ack, (tcp_hdr.th_off << 4) + tcp_hdr.th_x2,
+         tcp_hdr.th_flags, tcp_hdr.th_win, tcp_hdr.th_sum, tcp_hdr.th_urp);
 
 }
 
