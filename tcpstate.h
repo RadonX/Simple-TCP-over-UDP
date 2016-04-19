@@ -11,17 +11,17 @@ struct tcpdata{
     unsigned char data[TCP_DATA_SIZE];
 };
 
-static tcpdata *window;
-static int cwnd;
+tcpdata *window;
+int cwnd;
 
 enum EVENT {READDATA, ACK, TIMEOUT, WAIT};
-static enum EVENT event;
+enum EVENT event;
 
 struct TCPFSM {
     int wndbase;
     int state;
 };
-static struct TCPFSM tcpfsm;
+struct TCPFSM tcpfsm;
 
 
 inline void init_window()
