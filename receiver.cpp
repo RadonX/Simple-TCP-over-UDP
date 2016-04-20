@@ -1,6 +1,6 @@
-#include "tcpstate.h"
 #include "mytcp.h"
 #include "sock.h"
+#include "tcpstate.h"
 
 #include "sharelib.h"
 
@@ -8,13 +8,14 @@
 struct mytcphdr tcp_hdr;
 unsigned char packet_buf[MYTCPHDR_LEN];
 int sockfd_tcp;
-
+FILE* fp_log;
 
 void write_log(struct mytcphdr &tcp_hdr )
 {
     log_timestamp(logbuffer);
-    log_tcphdr(logbuffer+10, tcp_hdr);
-    puts(logbuffer);
+    log_tcphdr(logbuffer+TIMESTAMP_LEN, tcp_hdr);
+    fprintf(fp_log, logbuffer);
+    fprintf(fp_log, "\n");
 }
 
 void send_ack(int ack){
@@ -25,21 +26,22 @@ void send_ack(int ack){
 
 int main(int argc, char *argv[]){
     
-    //  parse arguments
-    // > receiver file.gz 20000 127.0.0.1 20001 logfile.txt
+    //:: parse arguments
+    // > receiver file.pdf 20000 127.0.0.1 20001 logfile.txt
     if (argc != 6) {
         printf("Usage: %s <filename> <listening_port> <sender_IP> <sender_port> <log_filename>\n", argv[0]);
         exit(1);
     }
     int srcport = atoi(argv[2]);
     char *filename = argv[1];
+    char *logfile = argv[5];
+
+    struct sockaddr_in send_addr;
+    setup_host_sockaddr(send_addr, argv[3], atoi(argv[4]) );
 
 
     unsigned char buffer[MYTCPHDR_LEN + TCP_DATA_SIZE];
     int n;
-
-    struct sockaddr_in send_addr;
-    setup_host_sockaddr(send_addr, argv[3], atoi(argv[4]) );
 
     //: create a TCP socket for ack
     sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
@@ -60,49 +62,54 @@ int main(int argc, char *argv[]){
     // set SO_REUSEADDR on a socket to true (1):
     setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
     bind_socket(sockfd_udp, srcport);
-    
-    struct sockaddr_in from;
-    socklen_t fromlen;
-    struct mytcphdr tmptcphdr;
-    set_tcphdr(tcp_hdr, srcport, ntohs(send_addr.sin_port));
 
+    //:: open files
     FILE* fp = fopen(filename, "wb");
     if (fp == NULL)
         error("Can't open the file.\n");
+    fp_log = fopen(logfile, "wb");
+    if (fp_log == NULL)
+        error("Can't open the log file.\n");
+
+    //: init tcp header for sending
+    struct mytcphdr tmptcphdr;
+    set_tcphdr(tcp_hdr, srcport, ntohs(send_addr.sin_port));
+
+
+    struct sockaddr_in from;
+    socklen_t fromlen;
 
     tcp_seq expseq = 0;
 
-    //  receive data from UDP socket    
+    //  receive data from UDP socket
     while (true){
 
         // bzero(buffer, 256);
         n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
         if (n < MYTCPHDR_LEN) error("ERROR recvfrom");
         if (n != MYTCPHDR_LEN + TCP_DATA_SIZE) {
-            printf("++++++\n%d\n++++++\n", n);
+            printf("++++++\n%d\n++++++\n", n);//~~
             if (n == MYTCPHDR_LEN) break;
         }
 
         unpack_tcphdr(buffer, tmptcphdr);
         write_log(tmptcphdr);
 
-        if (expseq == tmptcphdr.th_seq){
+        if (verify_checksum(buffer, n) && expseq == tmptcphdr.th_seq){
             fwrite(buffer + MYTCPHDR_LEN, sizeof(char), n - MYTCPHDR_LEN, fp);//~~ sizeof(buffer)??
             expseq++;
-        } // else: drop out-of-order pkt
+        } // else: drop corrupted/out-of-order pkt
         send_ack(expseq);
 
         write_log(tcp_hdr);
 
 //        printf("  >> from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
 
-
-        //~~ validate data src
-
         //~~ how to break when sockfd is closed
     }
 
     fclose(fp);
+    fclose(fp_log);
     printf("Delivery completed successfully\n");
 
     close(sockfd_tcp);

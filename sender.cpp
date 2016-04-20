@@ -1,36 +1,42 @@
-#include "tcpstate.h"
 #include "mytcp.h"
 #include "sock.h"
+#include "tcpstate.h"
 
 #include "sharelib.h"
 
 #define ACKBUF_LEN  400
-#define initialWait 5
 
 
 struct mytcphdr tcp_hdr;
 struct sockaddr_in recv_addr;
 int sockfd_tcp, sockfd_udp;
-unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE]; // for packet sent to socket
-
+unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE ]; // for packet sent to socket
+int nbytesent = 0, nseg = 0;
+FILE *fp_log;
 
 void write_log(struct mytcphdr &tcp_hdr )
 {
     log_timestamp(logbuffer);
-    log_tcphdr(logbuffer+10, tcp_hdr);
-    //~~ estimated RTT
-    puts(logbuffer);
+    log_tcphdr(logbuffer+TIMESTAMP_LEN, tcp_hdr);
+    fprintf(fp_log, logbuffer);
+    // log RTT
+    fprintf(fp_log, ", RTT = %dms\n", rtt.srtt);
 }
 
 void send_packet(int ind){
     tcp_hdr.th_seq = window[ind].seq;
     pack_tcphdr(packet_buf, tcp_hdr);
     memcpy(packet_buf + MYTCPHDR_LEN, window[ind].data, window[ind].size);
-
+    int packet_len = MYTCPHDR_LEN + window[ind].size;
+    //: set checksum
+    unsigned short checksum = calc_checksum(packet_buf, packet_len) ;//~~ htons
+    memcpy(packet_buf + CHECKSUM_IND, &checksum, sizeof(checksum));
     //  send data via UDP socket to recv_addr
-    int n = sendto(sockfd_udp, packet_buf, MYTCPHDR_LEN + window[ind].size, 0,
-               (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+    int n = sendto(sockfd_udp, packet_buf, packet_len, 0,
+                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+    nbytesent += packet_len; nseg++;
     if (n < 0) error("ERROR sendto");
+    sent_from_window(ind);
     write_log(tcp_hdr);
 
 }
@@ -56,7 +62,6 @@ int main(int argc, char *argv[])
     }
 
 
-
     //:: create a TCP socket for ack
     sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd_tcp < 0) error("Opening TCP socket");
@@ -66,7 +71,6 @@ int main(int argc, char *argv[])
     bind_socket(sockfd_tcp, srcport);
     listen(sockfd_tcp, 5);
     int sockfd;
-
 
     //: wait for notification from the remote host
     struct sockaddr_in from;
@@ -89,12 +93,19 @@ int main(int argc, char *argv[])
          */
     }
 
-    
     //:: create a UDP socket
     sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
     if (sockfd_udp < 0) error("Opening UDP socket");
     setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
     bind_socket(sockfd_udp, srcport);
+
+    //:: open files
+    FILE* fp = fopen(filename, "rb");
+    if (fp == NULL)
+        error("Can't open the file.\n");
+    fp_log = fopen(logfile, "wb");
+    if (fp_log == NULL)
+        error("Can't open the log file.\n");
 
 
     //:: init window and buffer
@@ -102,19 +113,15 @@ int main(int argc, char *argv[])
     set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port));
 
 
-    FILE* fp = fopen(filename, "rb");
-    if (fp == NULL)
-        error("Can't open the file.\n");
-
-
     //:: init
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(sockfd, &readfds);
-    timeval timeout = {initialWait, 0};//* 2;
+    init_rtt();
+    timeval &timeout = rtt.tv;
 
-    //:: TCP state machine
-    init_tcpfsm();
+
+    init_tcpfsm(); // TCP state machine
 
     int bufferlen;
     int ind, acknum;
@@ -134,14 +141,14 @@ int main(int argc, char *argv[])
                 tcpfsm.event = WAIT;
                 while (!eof){
                     //: add data to window if there is space and send it
-                    ind = add_data_to_window(buffer, bufferlen, npkt, seq);
+                    ind = add_to_window(buffer, bufferlen, npkt, seq);
                     if ( ind != -1 ){
                         printf("add %d\n", seq);
                         send_packet(ind);
                         seq++; //~~ add_seq
                         npkt++;
                     } else{
-                    //: otherwise wait for new event
+                        //: otherwise wait for new event
                         break;
                     }
                     //: read new data from file
@@ -219,15 +226,16 @@ int main(int argc, char *argv[])
 
     //: send an empty packet
     int n = sendto(sockfd_udp, packet_buf, MYTCPHDR_LEN, 0,
-               (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
     if (n < 0) error("ERROR sendto");
 
     printf("Delivery completed successfully\n");
-    printf("Total bytes sent = \n");
-    printf("Segments sent = %d\n", npkt);
-    printf("Segments retransmitted = 0 %%\n");
+    printf("Total bytes sent = %d\n", nbytesent);
+    printf("Segments sent = %d\n", nseg);
+    printf("Segments retransmitted = %.2f %%\n", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata
 
     fclose(fp);
+    fclose(fp_log);
 
     //::  FIN
 
@@ -237,4 +245,4 @@ int main(int argc, char *argv[])
     close(sockfd_udp);
 
     return 0;
- }
+}

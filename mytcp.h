@@ -28,8 +28,8 @@ struct mytcphdr {
 #define	TH_PUSH	0x08
 #define	TH_ACK	0x10
 #define	TH_URG	0x20
-#define	TH_ECE	0x40
-#define	TH_CWR	0x80
+//#define	TH_ECE	0x40
+//#define	TH_CWR	0x80
 //#define	TH_FLAGS	(TH_FIN|TH_SYN|TH_RST|TH_ACK|TH_URG|TH_ECE|TH_CWR)
 
     unsigned short	th_win;		/* 14-15    window */
@@ -38,10 +38,10 @@ struct mytcphdr {
 };
 
 #define MYTCPHDR_LEN sizeof(struct mytcphdr)
+#define CHECKSUM_IND 16
 
 
-
-inline void init_tcphdr(struct mytcphdr &tcp_hdr)
+inline void init_tcphdr(struct mytcphdr &tcp_hdr) //~~ define
 {
     bzero((char *) &tcp_hdr, MYTCPHDR_LEN);
 }
@@ -107,10 +107,36 @@ inline void pack_tcphdr(unsigned char *buffer, const struct mytcphdr &tcp_hdr)
 }
 
 /*
- * Compute the Internet Checksum of the supplied data.  The
-        checksum is initialized to zero.  Place the return value in
-        the checksum field of a packet.  When the packet is received,
-        check the checksum, by passing in the checksum field of the
-        packet and the data.  If the result is zero, then the checksum
-        has not detected an error.
+ * The checksum is initialized to zero. Place the return value in
+   the checksum field of a packet.  When the packet is received,
+   check the checksum, by passing in the checksum field of the
+   packet and the data.
+   If the result is zero, then the checksum has not detected an error.
  */
+
+
+u_short calc_checksum(u_char *packet_buf, int packet_len) //16-bit
+{
+
+    register u_int sum = 0;//~~
+    register u_short *ptr = (u_short *) packet_buf;
+
+    while(packet_len >= 2)
+    {
+        sum = sum + *(ptr)++;
+        packet_len -= 2;
+    }
+    if (packet_len > 0)
+        sum = sum + *((u_char *) ptr);
+
+    // fold 32-bit sum to 16 bits
+    while (sum>>16)
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    return (~sum);
+}
+
+bool verify_checksum(u_char *packet_buf, int packet_len)
+{
+    // u_short sum = *((u_short *) (packet_buf + CHECKSUM_IND)) ;
+    return 0 == calc_checksum(packet_buf, packet_len);
+}

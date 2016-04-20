@@ -16,7 +16,6 @@ inline void log_timestamp(char *logbuffer)
 {
     time(&logtimer);
     tm_info = localtime(&logtimer);
-    strftime(logbuffer, 10, "%H:%M:%S, ", tm_info);
+    strftime(logbuffer, TIMESTAMP_LEN, "%H:%M:%S, ", tm_info);
 }
-
 
