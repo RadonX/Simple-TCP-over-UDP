@@ -15,11 +15,11 @@ tcpdata *window;
 int cwnd;
 
 enum EVENT {READDATA, ACK, TIMEOUT, WAIT};
-enum EVENT event;
 
 struct TCPFSM {
-    int wndbase;
-    int state;
+    int sendbase; // (index = seq) == npkt
+    int n_dupack;
+    enum EVENT event;
 };
 struct TCPFSM tcpfsm;
 
@@ -32,8 +32,9 @@ inline void init_window()
 void init_tcpfsm()
 {
     init_window();
-    tcpfsm.wndbase = 0;
-    tcpfsm.state = 0;
+    tcpfsm.sendbase = 0;
+    tcpfsm.event = READDATA;
+    tcpfsm.n_dupack = 0;
 //    tcpfsm.datasent = 0;
 };
 
@@ -51,8 +52,19 @@ int add_data_to_window(unsigned char *buffer, int bufferlen, int index, int seq)
     return -1;
 }
 
-void ack_window(int index)
+bool ack_window(int index)
 {
-    int ind = index % cwnd; // (index = npkt) == seq
-    window[ind].state = 0;
+    int ind;
+    for (int i = index - 1; i >= tcpfsm.sendbase; i--){
+        ind = index % cwnd; // (index = seq) == npkt
+        window[ind].state = 0;
+    }
+    if (index > tcpfsm.sendbase) {
+        tcpfsm.sendbase = index;
+        tcpfsm.n_dupack = 1;
+        return true;
+    } else if (index == tcpfsm.sendbase){
+        tcpfsm.n_dupack++;
+    }
+    return false;
 }

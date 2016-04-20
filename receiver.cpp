@@ -9,6 +9,14 @@ struct mytcphdr tcp_hdr;
 unsigned char packet_buf[MYTCPHDR_LEN];
 int sockfd_tcp;
 
+
+void write_log(struct mytcphdr &tcp_hdr )
+{
+    log_timestamp(logbuffer);
+    log_tcphdr(logbuffer+10, tcp_hdr);
+    puts(logbuffer);
+}
+
 void send_ack(int ack){
     set_tcphdr_ack(tcp_hdr, ack);
     pack_tcphdr(packet_buf, tcp_hdr);
@@ -69,28 +77,25 @@ int main(int argc, char *argv[]){
 
         // bzero(buffer, 256);
         n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
-        if (n < 0) error("ERROR recvfrom");
-        if (n <= MYTCPHDR_LEN) break;
+        if (n < MYTCPHDR_LEN) error("ERROR recvfrom");
+        if (n != MYTCPHDR_LEN + TCP_DATA_SIZE) {
+            printf("++++++\n%d\n++++++\n", n);
+            if (n == MYTCPHDR_LEN) break;
+        }
 
         unpack_tcphdr(buffer, tmptcphdr);
-
-        //: log tcp header
-        log_timestamp(logbuffer);
-        log_tcphdr(logbuffer+10, tmptcphdr);
-        puts(logbuffer);
+        write_log(tmptcphdr);
 
         if (expseq == tmptcphdr.th_seq){
+            fwrite(buffer + MYTCPHDR_LEN, sizeof(char), n - MYTCPHDR_LEN, fp);//~~ sizeof(buffer)??
             expseq++;
-        }
+        } // else: drop out-of-order pkt
         send_ack(expseq);
 
-        log_timestamp(logbuffer);
-        log_tcphdr(logbuffer+10, tcp_hdr);
-        puts(logbuffer);
+        write_log(tcp_hdr);
 
 //        printf("  >> from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
 
-        fwrite(buffer + MYTCPHDR_LEN, sizeof(char), sizeof(buffer) - MYTCPHDR_LEN, fp);
 
         //~~ validate data src
 
