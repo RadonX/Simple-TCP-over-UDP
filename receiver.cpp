@@ -69,7 +69,7 @@ int main(int argc, char *argv[]){
     FILE* fp = fopen(filename, "wb");
     if (fp == NULL)
         error("Can't open the file.\n");
-    fp_log = fopen(logfile, "wb");
+    fp_log = open_logfile(logfile);
     if (fp_log == NULL)
         error("Can't open the log file.\n");
 

@@ -19,3 +19,13 @@ inline void log_timestamp(char *logbuffer)
     strftime(logbuffer, TIMESTAMP_LEN, "%H:%M:%S, ", tm_info);
 }
 
+FILE * open_logfile(char *logfile)
+{
+    FILE *fp_log;
+    if ( strcmp(logfile, "stdout") == 0 ){
+        fp_log = stdout;
+    } else {
+        fp_log = fopen(logfile, "wb");
+    }
+    return fp_log;
+}

@@ -3,7 +3,7 @@
 #include <sys/time.h>
 
 #define MAX_CWND 128
-#define TCP_DATA_SIZE 1024 - 20 // no option field for TCP, 576
+#define TCP_DATA_SIZE 576 - 20 // no option field for TCP, 576
 #define	RTO_MIN 1000
 #define	RTO_MAX 5000
 #define	RETRANS_MAX 12	/* max retransmision times */ //~~
@@ -52,7 +52,7 @@ void init_rtt()
     rtt.alpha = 0.125;
     rtt.beta = 0.25;
     rtt.G = 50;
-    rtt.rto = 3000;
+    rtt.rto = 1000;
     rtt.tv.tv_sec = rtt.rto/1000;
     rtt.tv.tv_usec = 0;
     rtt.srtt = 0;

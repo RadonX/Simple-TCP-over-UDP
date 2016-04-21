@@ -5,11 +5,12 @@
 #include "sharelib.h"
 
 #define ACKBUF_LEN  400
-//#define DEBUG
+#define DEBUG
 
 
 struct mytcphdr tcp_hdr;
-struct sockaddr_in recv_addr;
+//struct sockaddr_in recv_addr;
+struct sockaddr_storage recv_addr;
 int sockfd_tcp, sockfd_udp;
 unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE ]; // for packet sent to socket
 int nbytesent = 0, nseg = 0;
@@ -72,10 +73,10 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Usage: %s <filename> <remote_IP> <remote_port> <ack_port_num> <log_filename> <window_size>\n", argv[0]);
         exit(0);
     }
-    int srcport = atoi(argv[4]);
+    int srcport = atoi(argv[4]), dstport = atoi(argv[3]);
     char *filename = argv[1];
     char *logfile = argv[5];
-    setup_host_sockaddr(recv_addr, argv[2], atoi(argv[3]) );
+    set_sockaddr(recv_addr, argv[2], argv[3], SOCK_STREAM);
     cwnd = atoi(argv[6]);
     if (cwnd > MAX_CWND) {
         fprintf(stderr, "Max window size supported is %d\n", MAX_CWND);
@@ -124,23 +125,20 @@ int main(int argc, char *argv[])
     FILE* fp = fopen(filename, "rb");
     if (fp == NULL)
         error("Can't open the file.\n");
-    fp_log = fopen(logfile, "wb");
+    fp_log = open_logfile(logfile);
     if (fp_log == NULL)
         error("Can't open the log file.\n");
-
 
     //:: init window, buffer, and tcp header
     init_tcpfsm(); // TCP state machine
     unsigned char buffer[TCP_DATA_SIZE]; // for data read from file
-    set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port), cwnd);
+    set_tcphdr(tcp_hdr, srcport, dstport, cwnd);
     //:: init readfds, rtt
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(sockfd, &readfds);
     init_rtt();
     timeval &timeout = rtt.tv;
-
-
 
     int bufferlen;
     int ind, acknum;
@@ -161,8 +159,6 @@ int main(int argc, char *argv[])
             set_FIN_pkt(finnum); //-> packet_buf
             tcpfsm.event = SENDDATA;
         }
-
-
 
         switch (tcpfsm.event) {
 
@@ -194,7 +190,7 @@ int main(int argc, char *argv[])
                 break;
 
             case ACK:
-                //::
+                //:: handle a cumulative ACK
 
                 tcpfsm.event = WAIT;
 #ifdef DEBUG
@@ -203,7 +199,7 @@ int main(int argc, char *argv[])
                     error("shouldn't happen when tcpfsm.event == ACK");
                 }
 #endif
-                //: parse received packet
+                // parse received packet
                 unpack_tcphdr(ack_buf + pkt_ind, tmptcphdr);
                 pkt_ind += MYTCPHDR_LEN; // len of ack pkt
                 write_log(tmptcphdr);
@@ -211,16 +207,18 @@ int main(int argc, char *argv[])
                     acknum = tmptcphdr.th_ack;
                 } else break;
 
+                // all file data acked, try to ack FIN
                 if (done == 1){
-//                    tcpfsm.event = SENDDATA;
                     if (acknum == finnum + 1) done = 2;
                     continue;
                 }
-                if (ack_window(acknum) ){ // cumulative ack all packet (npkt < acknum)
+                if (ack_window(acknum) ){
+                    // if true: successfully ack all packet (npkt < acknum),
+                    // and make the spot in window available again
 #ifdef DEBUG
                     printf("ack %d\n", acknum);
 #endif
-                    // always try to send new data after each ACK
+                    //: always try to send new data after each ACK
                     if (!eof){
                         tcpfsm.event = SENDDATA;
                     }
@@ -231,6 +229,7 @@ int main(int argc, char *argv[])
             case TIMEOUT:
                 //:: retransmit unacked packet with least sequence number
                 tcpfsm.event = WAIT;
+                // resend FIN
                 if (done == 1){
                     send_FIN_pkt();
                     break;
@@ -244,9 +243,8 @@ int main(int argc, char *argv[])
                 break;
         }
 
-        //P64: change timeout
-
         if (pkt_ind < n_ackpkt) {
+            // there is still ACK packets in buffer
             tcpfsm.event = ACK;// still ACK event
             continue;
         }
@@ -262,8 +260,8 @@ int main(int argc, char *argv[])
             continue;
         }
 
-
-        if (FD_ISSET(sockfd, &readfds) ){ //~~ seems that after receiver sock closed, here always being true
+        //:: receive ACK packets
+        if (FD_ISSET(sockfd, &readfds) ){ //~~ after receiver sock closed, here always being true
             n_ackpkt = recv(sockfd, ack_buf, sizeof ack_buf, 0);
             if (n_ackpkt == 0){
                 tcpfsm.event = WAIT;
@@ -279,16 +277,16 @@ int main(int argc, char *argv[])
     }
 
 
-
+    //:: Statistics
     printf("Delivery completed successfully\n");
     printf("Total bytes sent = %d\n", nbytesent);
     printf("Segments sent = %d\n", nseg);
-    printf("Segments retransmitted = %.2f %%", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata
+    printf("Segments retransmitted = %.2f %% ", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata
 
     fclose(fp);
     fclose(fp_log);
 
-    //~~  close socket
+    close(sockfd);
     close(sockfd_tcp);
     close(sockfd_udp);
 
