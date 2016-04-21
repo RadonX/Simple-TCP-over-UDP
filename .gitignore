@@ -3,3 +3,8 @@ reference/*
 # compiled files
 sender
 receiver
+
+*.dSYM
+
+note.md
+CMakeLists.txt

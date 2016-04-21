@@ -5,12 +5,12 @@
 #include "sharelib.h"
 
 #define ACKBUF_LEN  400
-#define DEBUG
+//#define DEBUG
 
 
 struct mytcphdr tcp_hdr;
-//struct sockaddr_in recv_addr;
 struct sockaddr_storage recv_addr;
+socklen_t recv_addrlen;
 int sockfd_tcp, sockfd_udp;
 unsigned char packet_buf[MYTCPHDR_LEN + TCP_DATA_SIZE ]; // for packet sent to socket
 int nbytesent = 0, nseg = 0;
@@ -35,7 +35,7 @@ void send_packet(int ind){
     memcpy(packet_buf + CHECKSUM_IND, &checksum, sizeof(checksum));
     //  send data via UDP socket to recv_addr
     int n = sendto(sockfd_udp, packet_buf, packet_len, 0,
-                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+                   (const struct sockaddr *)&recv_addr, recv_addrlen);
     nbytesent += packet_len; nseg++;
     if (n < 0) error("ERROR sendto");
     sent_from_window(ind);
@@ -57,7 +57,7 @@ void send_FIN_pkt()
 {
     //:: try to send the FIN packet
     int n = sendto(sockfd_udp, packet_buf, MYTCPHDR_LEN, 0,
-                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+                   (const struct sockaddr *)&recv_addr, recv_addrlen);
     nbytesent += MYTCPHDR_LEN; nseg++;
     if (n < 0) error("ERROR sendto");
     write_log(tcp_hdr);
@@ -76,32 +76,29 @@ int main(int argc, char *argv[])
     int srcport = atoi(argv[4]), dstport = atoi(argv[3]);
     char *filename = argv[1];
     char *logfile = argv[5];
-    set_sockaddr(recv_addr, argv[2], argv[3], SOCK_STREAM);
     cwnd = atoi(argv[6]);
     if (cwnd > MAX_CWND) {
         fprintf(stderr, "Max window size supported is %d\n", MAX_CWND);
         exit(0);
     }
-
+    //: set remote & local sockaddr
+    socklen_t send_addrlen;
+    struct sockaddr_storage send_addr;
+    int aifamily = set_sockaddr(recv_addr, recv_addrlen, argv[2], argv[3]);
+    set_sockaddr(send_addr, send_addrlen, NULL, argv[4], aifamily);
 
     //:: create a TCP socket for ack
-    sockfd_tcp = socket(PF_INET, SOCK_STREAM, 0);
-    if (sockfd_tcp < 0) error("Opening TCP socket");
-    //  lose the pesky "address already in use" error message
-    int optval = 1;
-    setsockopt(sockfd_tcp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
-    bind_socket(sockfd_tcp, srcport);
+    sockfd_tcp = create_and_bind_socket(send_addr, send_addrlen, aifamily, SOCK_STREAM);
     listen(sockfd_tcp, 5);
     int sockfd;
-
     //: wait for notification from the remote host
-    struct sockaddr_in from;
+    struct sockaddr_storage from;
     socklen_t fromlen;
     while (true){
         sockfd = accept(sockfd_tcp, (struct sockaddr *) &from, &fromlen);
         if (sockfd < 0) error("ERROR on accept");
-        printf("got connection from %s port %d\n\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
-        send(sockfd, "Hello, receiver!\n", 20, 0);//~~
+        //printf("got connection from %s port %d\n\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port)); // ipv4 only
+        send(sockfd, "Hello, receiver!\n", 20, 0);
         break;
         //?? only when there is `fread()` below, from != recv
         //?? from/recv seem to refer to the same receiver, being of address/protocol family
@@ -116,10 +113,8 @@ int main(int argc, char *argv[])
     }
 
     //:: create a UDP socket
-    sockfd_udp = socket(PF_INET, SOCK_DGRAM, 0); //~~ PF_INET6
-    if (sockfd_udp < 0) error("Opening UDP socket");
-    setsockopt(sockfd_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(int));
-    bind_socket(sockfd_udp, srcport);
+    sockfd_udp = create_and_bind_socket(send_addr, send_addrlen, aifamily, SOCK_DGRAM);
+    printf("%d\n", getsockname(sockfd, (struct sockaddr *)&from, &fromlen) );
 
     //:: open files
     FILE* fp = fopen(filename, "rb");
@@ -151,7 +146,7 @@ int main(int argc, char *argv[])
 
     bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
     eof = (bufferlen <= 0);
-    while (done != 2 ){
+    while (done != 2 && !tcpfsm.transmax){
         if (eof && (tcpfsm.sendbase == npkt) && done == 0)  {
             //:: all file chunks acked
             done = 1;
@@ -276,9 +271,12 @@ int main(int argc, char *argv[])
 
     }
 
-
     //:: Statistics
-    printf("Delivery completed successfully\n");
+    if (tcpfsm.transmax){
+        printf("Max transmission times reached. Fail to send the file\n");
+    } else {
+        printf("Delivery completed successfully\n");
+    }
     printf("Total bytes sent = %d\n", nbytesent);
     printf("Segments sent = %d\n", nseg);
     printf("Segments retransmitted = %.2f %% ", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata

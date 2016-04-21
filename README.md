@@ -77,15 +77,18 @@ _Compiled successfully under gcc version 4.8.3_.
 
 2. The computation of RTT follows [RFC 6298 - Computing TCP's Retransmission Timer](https://tools.ietf.org/html/rfc6298). Retransmission packet is not used in calculating estimated RTT. Therefore, under poor network conditions, it's likely that RTT is never estimated and remains default, which is 0.
 
-3. Closing the connection is a 2-way handshake.
+3. Sometimes, the sender and the receiver fail to connect, or some sockets eventually close. The processes will block and nothing are output. The output "Connected: Hello, receiver!" is to confirm whether the TCP path is set up.
 
-4. "Connected: Hello, receiver!" is output to confirm whether the TCP path is set up.
+4. Closing the connection is a 2-way handshake.
 
-4. `pack.h` from [Beej's Guide to Network Programming](http://beej.us/guide/bgnet/) is included for `pack()` and `unpack()`.
+5. IP header is not included when calculating checksum.
 
-5. Sequence number is not bounded. It corresponds to the index of file chunks.
+6. `pack.h` from [Beej's Guide to Network Programming](http://beej.us/guide/bgnet/) is included for `pack()` and `unpack()`.
 
-6. Restart pattern of timer is not the same as that in lecture slide.
+7. Sequence number is not bounded. It corresponds to the index of file chunks.
+
+8. Restart pattern of timer is not the same as that in lecture slide.
+
 
 
 

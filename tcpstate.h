@@ -28,6 +28,7 @@ struct TCPFSM {
     int sendbase; // (index = seq) == npkt
     int n_dupack;
     enum EVENT event;
+    bool transmax;
 };
 struct TCPFSM tcpfsm;
 
@@ -92,6 +93,7 @@ void init_tcpfsm()
     tcpfsm.sendbase = 0;
     tcpfsm.event = SENDDATA;
     tcpfsm.n_dupack = 0;
+    tcpfsm.transmax = false;
 };
 
 
@@ -113,6 +115,8 @@ inline void sent_from_window(int ind)
 {
     gettimeofday(&(window[ind].sendtime), NULL);
     window[ind].n_trans++;
+    if (window[ind].n_trans == RETRANS_MAX)
+        tcpfsm.transmax = true;
 }
 
 bool ack_window(int index)
