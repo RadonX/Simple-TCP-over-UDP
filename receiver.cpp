@@ -4,6 +4,7 @@
 
 #include "sharelib.h"
 
+//#define DEBUG
 
 struct mytcphdr tcp_hdr;
 unsigned char packet_buf[MYTCPHDR_LEN];
@@ -15,6 +16,7 @@ void write_log(struct mytcphdr &tcp_hdr )
     log_timestamp(logbuffer);
     log_tcphdr(logbuffer+TIMESTAMP_LEN, tcp_hdr);
     fprintf(fp_log, logbuffer);
+//    puts(logbuffer);
     fprintf(fp_log, "\n");
 }
 
@@ -81,29 +83,33 @@ int main(int argc, char *argv[]){
 
     tcp_seq expseq = 0;
 
-    //  receive data from UDP socket
     while (true){
 
-        // bzero(buffer, 256);
+        //:  receive data from UDP socket
         n = recvfrom(sockfd_udp, buffer, sizeof(buffer), 0, (struct sockaddr *) &from, &fromlen);
         if (n < MYTCPHDR_LEN) error("ERROR recvfrom");
-        if (n != MYTCPHDR_LEN + TCP_DATA_SIZE) {
-            printf("++++++\n%d\n++++++\n", n);//~~
-            if (n == MYTCPHDR_LEN) break;
-        }
 
         unpack_tcphdr(buffer, tmptcphdr);
         write_log(tmptcphdr);
+
 
         if (verify_checksum(buffer, n) && expseq == tmptcphdr.th_seq){
             fwrite(buffer + MYTCPHDR_LEN, sizeof(char), n - MYTCPHDR_LEN, fp);//~~ sizeof(buffer)??
             expseq++;
         } // else: drop corrupted/out-of-order pkt
         send_ack(expseq);
-
         write_log(tcp_hdr);
 
-//        printf("  >> from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+        if (tmptcphdr.th_flags & TH_FIN) break;
+
+#ifdef DEBUG
+        printf("  >> from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+        if (n == MYTCPHDR_LEN){
+            printf("if it's FIN packet, shouldn't be here");
+            break;
+        }
+#endif
+
 
         //~~ how to break when sockfd is closed
     }

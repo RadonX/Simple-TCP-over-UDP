@@ -3,7 +3,7 @@
 #include <sys/time.h>
 
 #define MAX_CWND 128
-#define TCP_DATA_SIZE 576 - 20 // no option field for TCP, 576
+#define TCP_DATA_SIZE 1024 - 20 // no option field for TCP, 576
 #define	RTO_MIN 1000
 #define	RTO_MAX 5000
 #define	RETRANS_MAX 12	/* max retransmision times */ //~~
@@ -22,7 +22,7 @@ struct segment{
 struct segment *window;
 int cwnd;
 
-enum EVENT {READDATA, ACK, TIMEOUT, WAIT};
+enum EVENT {SENDDATA, ACK, TIMEOUT, WAIT};
 
 struct TCPFSM {
     int sendbase; // (index = seq) == npkt
@@ -90,7 +90,7 @@ void init_tcpfsm()
 {
     init_window();
     tcpfsm.sendbase = 0;
-    tcpfsm.event = READDATA;
+    tcpfsm.event = SENDDATA;
     tcpfsm.n_dupack = 0;
 };
 

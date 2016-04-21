@@ -5,6 +5,7 @@
 #include "sharelib.h"
 
 #define ACKBUF_LEN  400
+//#define DEBUG
 
 
 struct mytcphdr tcp_hdr;
@@ -39,6 +40,26 @@ void send_packet(int ind){
     sent_from_window(ind);
     write_log(tcp_hdr);
 
+}
+
+void set_FIN_pkt(int seq)
+{
+    tcp_hdr.th_seq = seq;
+    tcp_hdr.th_flags = TH_FIN;
+    pack_tcphdr(packet_buf, tcp_hdr);
+    //: set checksum
+    unsigned short checksum = calc_checksum(packet_buf, MYTCPHDR_LEN) ;//~~ htons
+    memcpy(packet_buf + CHECKSUM_IND, &checksum, sizeof(checksum));
+}
+
+void send_FIN_pkt()
+{
+    //:: try to send the FIN packet
+    int n = sendto(sockfd_udp, packet_buf, MYTCPHDR_LEN, 0,
+                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
+    nbytesent += MYTCPHDR_LEN; nseg++;
+    if (n < 0) error("ERROR sendto");
+    write_log(tcp_hdr);
 }
 
 
@@ -78,7 +99,7 @@ int main(int argc, char *argv[])
     while (true){
         sockfd = accept(sockfd_tcp, (struct sockaddr *) &from, &fromlen);
         if (sockfd < 0) error("ERROR on accept");
-        printf("got connection from %s port %d\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
+        printf("got connection from %s port %d\n\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port));
         send(sockfd, "Hello, receiver!\n", 20, 0);//~~
         break;
         //?? only when there is `fread()` below, from != recv
@@ -108,12 +129,11 @@ int main(int argc, char *argv[])
         error("Can't open the log file.\n");
 
 
-    //:: init window and buffer
+    //:: init window, buffer, and tcp header
+    init_tcpfsm(); // TCP state machine
     unsigned char buffer[TCP_DATA_SIZE]; // for data read from file
-    set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port));
-
-
-    //:: init
+    set_tcphdr(tcp_hdr, srcport, ntohs(recv_addr.sin_port), cwnd);
+    //:: init readfds, rtt
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(sockfd, &readfds);
@@ -121,29 +141,44 @@ int main(int argc, char *argv[])
     timeval &timeout = rtt.tv;
 
 
-    init_tcpfsm(); // TCP state machine
 
     int bufferlen;
     int ind, acknum;
     int seq = 0, npkt = 0;
-    bool eof, fin = false;
+    int done = 0;
+    bool eof;
     struct mytcphdr tmptcphdr;
-    int pkt_ind = 0, n_ackpkt = 0;
+    int pkt_ind = 0, n_ackpkt = 0, finnum;
     unsigned char ack_buf[ACKBUF_LEN];
 
     bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
     eof = (bufferlen <= 0);
-    while (!(eof && (tcpfsm.sendbase == npkt)) ){
+    while (done != 2 ){
+        if (eof && (tcpfsm.sendbase == npkt) && done == 0)  {
+            //:: all file chunks acked
+            done = 1;
+            finnum = acknum;
+            set_FIN_pkt(finnum); //-> packet_buf
+            tcpfsm.event = SENDDATA;
+        }
+
+
 
         switch (tcpfsm.event) {
 
-            case READDATA:
+            case SENDDATA:
                 tcpfsm.event = WAIT;
+                if (done == 1){
+                    send_FIN_pkt();
+#ifdef DEBUG
+                    printf("FIN send\n");
+#endif
+                    break;
+                }
                 while (!eof){
                     //: add data to window if there is space and send it
                     ind = add_to_window(buffer, bufferlen, npkt, seq);
                     if ( ind != -1 ){
-                        printf("add %d\n", seq);
                         send_packet(ind);
                         seq++; //~~ add_seq
                         npkt++;
@@ -155,17 +190,20 @@ int main(int argc, char *argv[])
                     bufferlen = fread(buffer, sizeof(char), TCP_DATA_SIZE, fp);
                     eof = (bufferlen <= 0);
                 }
-                //printf("READDATA upto %d\n", npkt);
+                //printf("SENDDATA upto %d\n", npkt);
                 break;
 
             case ACK:
+                //::
+
                 tcpfsm.event = WAIT;
+#ifdef DEBUG
                 if (pkt_ind >= n_ackpkt) {
                     printf("n_ackpkt = %d\n", n_ackpkt);
                     error("shouldn't happen when tcpfsm.event == ACK");
                 }
+#endif
                 //: parse received packet
-                //printf("%d / %d\n", pkt_ind, n_ackpkt);
                 unpack_tcphdr(ack_buf + pkt_ind, tmptcphdr);
                 pkt_ind += MYTCPHDR_LEN; // len of ack pkt
                 write_log(tmptcphdr);
@@ -173,20 +211,34 @@ int main(int argc, char *argv[])
                     acknum = tmptcphdr.th_ack;
                 } else break;
 
+                if (done == 1){
+//                    tcpfsm.event = SENDDATA;
+                    if (acknum == finnum + 1) done = 2;
+                    continue;
+                }
                 if (ack_window(acknum) ){ // cumulative ack all packet (npkt < acknum)
+#ifdef DEBUG
                     printf("ack %d\n", acknum);
+#endif
                     // always try to send new data after each ACK
                     if (!eof){
-                        tcpfsm.event = READDATA;
-                        continue;// can skip WAIT state
+                        tcpfsm.event = SENDDATA;
                     }
+                    continue;// can skip WAIT state
                 }
                 break;
 
             case TIMEOUT:
+                //:: retransmit unacked packet with least sequence number
                 tcpfsm.event = WAIT;
+                if (done == 1){
+                    send_FIN_pkt();
+                    break;
+                }
                 send_packet(tcpfsm.sendbase % cwnd);
+#ifdef DEBUG
                 printf("retransmit pkt %d\n", tcpfsm.sendbase);
+#endif
                 break;
             default:
                 break;
@@ -200,7 +252,6 @@ int main(int argc, char *argv[])
         }
 
         //:: wait for new event (ack/timeout)
-        //printf("select()\n");
         // make sure sockfd in readfds before select()
         int ret_select = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
         if (ret_select == -1)
@@ -214,6 +265,10 @@ int main(int argc, char *argv[])
 
         if (FD_ISSET(sockfd, &readfds) ){ //~~ seems that after receiver sock closed, here always being true
             n_ackpkt = recv(sockfd, ack_buf, sizeof ack_buf, 0);
+            if (n_ackpkt == 0){
+                tcpfsm.event = WAIT;
+                continue;
+            }
             pkt_ind = 0;
             // since multiple pkts can huddle, receiver should send only fixed-length pkts
             // otherwise need to provide `option` so as to differentiate tcp pkts
@@ -224,23 +279,16 @@ int main(int argc, char *argv[])
     }
 
 
-    //: send an empty packet
-    int n = sendto(sockfd_udp, packet_buf, MYTCPHDR_LEN, 0,
-                   (const struct sockaddr *)&recv_addr, SOCKADDR_LEN);
-    if (n < 0) error("ERROR sendto");
 
     printf("Delivery completed successfully\n");
     printf("Total bytes sent = %d\n", nbytesent);
     printf("Segments sent = %d\n", nseg);
-    printf("Segments retransmitted = %.2f %%\n", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata
+    printf("Segments retransmitted = %.2f %%", 100.0 * (nseg - npkt) / nseg );//~~ rename npkt->ndata
 
     fclose(fp);
     fclose(fp_log);
 
-    //::  FIN
-
     //~~  close socket
-
     close(sockfd_tcp);
     close(sockfd_udp);
 

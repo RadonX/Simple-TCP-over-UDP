@@ -103,7 +103,7 @@ void packi64(unsigned char *buf, unsigned long long int i)
 /*
 ** unpacki16() -- unpack a 16-bit int from a char buffer (like ntohs())
 */ 
-int unpacki16(unsigned char *buf)
+int unpacki16(const unsigned char *buf)
 {
 	unsigned int i2 = ((unsigned int)buf[0]<<8) | buf[1];
 	int i;
@@ -118,7 +118,7 @@ int unpacki16(unsigned char *buf)
 /*
 ** unpacku16() -- unpack a 16-bit unsigned from a char buffer (like ntohs())
 */ 
-unsigned int unpacku16(unsigned char *buf)
+unsigned int unpacku16(const unsigned char *buf)
 {
 	return ((unsigned int)buf[0]<<8) | buf[1];
 }
@@ -126,7 +126,7 @@ unsigned int unpacku16(unsigned char *buf)
 /*
 ** unpacki32() -- unpack a 32-bit int from a char buffer (like ntohl())
 */ 
-long int unpacki32(unsigned char *buf)
+long int unpacki32(const unsigned char *buf)
 {
 	unsigned long int i2 = ((unsigned long int)buf[0]<<24) |
 	                       ((unsigned long int)buf[1]<<16) |
@@ -144,7 +144,7 @@ long int unpacki32(unsigned char *buf)
 /*
 ** unpacku32() -- unpack a 32-bit unsigned from a char buffer (like ntohl())
 */ 
-unsigned long int unpacku32(unsigned char *buf)
+unsigned long int unpacku32(const unsigned char *buf)
 {
 	return ((unsigned long int)buf[0]<<24) |
 	       ((unsigned long int)buf[1]<<16) |
@@ -155,7 +155,7 @@ unsigned long int unpacku32(unsigned char *buf)
 /*
 ** unpacki64() -- unpack a 64-bit int from a char buffer (like ntohl())
 */ 
-long long int unpacki64(unsigned char *buf)
+long long int unpacki64(const unsigned char *buf)
 {
 	unsigned long long int i2 = ((unsigned long long int)buf[0]<<56) |
 	                            ((unsigned long long int)buf[1]<<48) |
@@ -177,7 +177,7 @@ long long int unpacki64(unsigned char *buf)
 /*
 ** unpacku64() -- unpack a 64-bit unsigned from a char buffer (like ntohl())
 */ 
-unsigned long long int unpacku64(unsigned char *buf)
+unsigned long long int unpacku64(const unsigned char *buf)
 {
 	return ((unsigned long long int)buf[0]<<56) |
 	       ((unsigned long long int)buf[1]<<48) |
@@ -342,7 +342,7 @@ unsigned int pack(unsigned char *buf, char *format, ...)
 **  (string is extracted based on its stored length, but 's' can be
 **  prepended with a max length)
 */
-void unpack(unsigned char *buf, char *format, ...)
+void unpack(const unsigned char *buf, char *format, ...)
 {
 	va_list ap;
 

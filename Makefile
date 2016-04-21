@@ -1,8 +1,3 @@
-
-########################################################################
-#   Preamble.
-########################################################################
-
 ifeq ($(OPTFLAGS),)
 	OPTFLAGS = -g
 endif
@@ -15,23 +10,13 @@ LDFLAGS = $(OPTFLAGS)
 
 #CXXFLAGS += $(OPTFLAGS)
 
-#   GNU make's default rule uses $(CC) for linking
+## GNU make's default rule uses $(CC) for linking
 #LINK.o = $(CXX) $(LDFLAGS) $(TARGET_ARCH)
 
 
-########################################################################
-#   Rules.
-########################################################################
-
-all : sender receiver send recv
+all : sender receiver
 
 clean:
-	rm -f sender receiver send recv
-
-#sender.o : sender
-
-########################################################################
-#   
-########################################################################
+	rm -f sender receiver
 
 

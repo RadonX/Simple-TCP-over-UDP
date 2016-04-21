@@ -69,7 +69,7 @@ inline void set_tcphdr_ack(struct mytcphdr &tcp_hdr, tcp_seq ack)
     tcp_hdr.th_ack = ack;
 }
 
-inline void unpack_tcphdr(unsigned char *buffer, struct mytcphdr &tcp_hdr)
+inline void unpack_tcphdr(const unsigned char *buffer, struct mytcphdr &tcp_hdr)
 {
     int offset;
     unpack(buffer, "HHLLCCHHH", &tcp_hdr.th_sport, &tcp_hdr.th_dport,
